@@ -1567,7 +1567,7 @@ class DiscordAdapter(BasePlatformAdapter):
                 except (TypeError, ValueError):
                     uid_int = None
                 if uid_int is not None:
-                    for guild in self._client.guilds:
+                    for guild in getattr(self._client, "guilds", []):
                         m = guild.get_member(uid_int)
                         if m is None:
                             continue
@@ -1963,6 +1963,9 @@ class DiscordAdapter(BasePlatformAdapter):
         except Exception:
             pass  # logging must never block command dispatch
 
+        if not await self._authorize_interaction(interaction):
+            return
+
         await interaction.response.defer(ephemeral=True)
         event = self._build_slash_event(interaction, command_text)
         await self.handle_message(event)
@@ -1973,6 +1976,16 @@ class DiscordAdapter(BasePlatformAdapter):
                 await interaction.delete_original_response()
         except Exception as e:
             logger.debug("Discord interaction cleanup failed: %s", e)
+
+    async def _authorize_interaction(self, interaction: discord.Interaction) -> bool:
+        """Apply Discord user/role allowlists to an application interaction."""
+        author = interaction.user
+        if self._is_allowed_user(str(author.id), author):
+            return True
+
+        logger.warning("[%s] Rejected unauthorized Discord interaction from user %s", self.name, author.id)
+        await interaction.response.send_message("You are not authorized to use this bot.", ephemeral=True)
+        return False
 
     def _register_slash_commands(self) -> None:
         """Register Discord slash commands on the command tree."""
@@ -2107,6 +2120,8 @@ class DiscordAdapter(BasePlatformAdapter):
             message: str = "",
             auto_archive_duration: int = 1440,
         ):
+            if not await self._authorize_interaction(interaction):
+                return
             await interaction.response.defer(ephemeral=True)
             await self._handle_thread_create_slash(interaction, name, message, auto_archive_duration)
 

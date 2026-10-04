@@ -116,12 +116,55 @@ def adapter():
 
 
 @pytest.mark.asyncio
+async def test_simple_slash_rejects_user_without_allowed_role(adapter):
+    adapter._allowed_role_ids = {777}
+    adapter.handle_message = AsyncMock()
+    interaction = SimpleNamespace(
+        user=SimpleNamespace(id=42, name="Intruder", roles=[SimpleNamespace(id=123)]),
+        channel=SimpleNamespace(id=123),
+        channel_id=123,
+        guild_id=456,
+        response=SimpleNamespace(defer=AsyncMock(), send_message=AsyncMock()),
+    )
+
+    await adapter._run_simple_slash(interaction, "/background untrusted prompt")
+
+    interaction.response.send_message.assert_awaited_once_with(
+        "You are not authorized to use this bot.", ephemeral=True
+    )
+    interaction.response.defer.assert_not_awaited()
+    adapter.handle_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_simple_slash_accepts_user_with_allowed_role(adapter):
+    adapter._allowed_role_ids = {777}
+    adapter.handle_message = AsyncMock()
+    adapter._build_slash_event = MagicMock(return_value=SimpleNamespace())
+    interaction = SimpleNamespace(
+        user=SimpleNamespace(id=42, name="Member", roles=[SimpleNamespace(id=777)]),
+        channel=SimpleNamespace(id=123),
+        channel_id=123,
+        guild_id=456,
+        response=SimpleNamespace(defer=AsyncMock(), send_message=AsyncMock()),
+        delete_original_response=AsyncMock(),
+    )
+
+    await adapter._run_simple_slash(interaction, "/status")
+
+    interaction.response.send_message.assert_not_awaited()
+    interaction.response.defer.assert_awaited_once_with(ephemeral=True)
+    adapter.handle_message.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_registers_native_thread_slash_command(adapter):
     adapter._handle_thread_create_slash = AsyncMock()
     adapter._register_slash_commands()
 
     command = adapter._client.tree.commands["thread"]
     interaction = SimpleNamespace(
+        user=SimpleNamespace(id=42),
         response=SimpleNamespace(defer=AsyncMock()),
     )
 
